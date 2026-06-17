@@ -1,67 +1,74 @@
 # mkv-default-tracks
 
-A small interactive PowerShell script for setting default audio and subtitle tracks across all MKV files in a folder — useful for cleaning up TV-show seasons where the default tracks are wrong (e.g., Russian audio plays automatically when you'd rather hear English).
+A small interactive PowerShell tool for setting the default audio and subtitle tracks across all video files in a folder — useful for cleaning up TV-show seasons where the wrong track plays by default (e.g., Russian audio plays automatically when you'd rather hear English). It now also handles **MP4 / MOV** files and shows **basic media info** (resolution, codec, bitrate, …) for every file.
 
-> \*\*Heads up:\*\* this is a personal tool I built to scratch my own itch. It's public because — why not. Use it, fork it, ignore it. No promises, no support, no roadmap. 🙂
+> **Heads up:** this is a personal tool I built to scratch my own itch. It's public because — why not. Use it, fork it, ignore it. No promises, no support, no roadmap. 🙂
 
 ## What it does
 
-For every `.mkv` file in a folder, it lets you pick:
+For every video file in a folder (or a single file), it:
 
-* which **audio track** should play by default
-* which **subtitle track** should show by default (or none at all)
+* shows **basic info per file** — resolution (e.g. `1080p`), video codec (H.264 / H.265…), bitrate, file size, duration, and an audio-track summary;
+* lets you pick which **audio track** should play by default;
+* lets you pick which **subtitle track** should show by default (or none at all).
 
-It groups files by structure first, so if a folder has files with different track layouts (e.g., 25 episodes with 2 audio tracks and 1 episode with 3), it tells you about the mismatch before doing anything destructive.
+It groups files by track layout first, so if a folder mixes structures (e.g. 25 episodes with 2 audio tracks and 1 episode with 3), it tells you about the mismatch before changing anything.
 
-The script edits MKV metadata only — no re-encoding, no re-muxing. It runs in seconds.
+No re-encoding ever happens, and nothing is rewritten unless it truly has to be:
 
-## Why it exists
+* **Matroska** (`.mkv .mka .mks .webm`) — `mkvpropedit` flips the flag **in place**: instant.
+* **MP4 / MOV** (`.mp4 .m4v .mov`) — in an MP4 the "default audio" is just one bit (the track's *enabled* flag) inside the small file header, so the script flips that bit **directly in place**. **Instant, nothing is rewritten** (the multi-GB media data is never touched), the file stays `.mp4`, and it's just as fast on a slow drive as on an SSD. *(If a file's structure is ever unexpected, it automatically falls back to the lossless remux below — never guesses.)*
+* **MPEG-TS** (`.ts .m2ts`) — these have no such header, so they're **remuxed losslessly into a fresh `.mkv` with `mkvmerge`** (copy speed, `-c copy`, no re-encode); the original is replaced after the `.mkv` is written successfully.
+* **Other containers** (`.avi .wmv .mpg …`) — info is shown, but default-track editing isn't supported for them.
 
-If you download a TV-show season and find that:
+## Supported actions by format
 
-* the wrong language plays by default,
-* subtitles you don't want pop up automatically,
-* some tracks aren't even tagged with a language,
-
-…you'd otherwise have to fix every file by hand in MKVToolNix GUI. This script asks you once, then applies the choice to every file in the folder.
+| Container                   | Show info | Set default tracks | How                                |
+|-----------------------------|:---------:|:------------------:|------------------------------------|
+| `.mkv .mka .mks .webm`      |    ✅     |         ✅         | `mkvpropedit`, in place — instant   |
+| `.mp4 .m4v .mov`            |    ✅     |         ✅         | flag flipped in place — instant     |
+| `.ts .m2ts`                 |    ✅     |         ✅         | `mkvmerge` lossless remux → `.mkv`  |
+| `.avi .wmv .mpg .mpeg .flv` |    ✅     |         —          | —                                  |
 
 ## Requirements
 
-* **Windows** (the launcher is a `.bat` file)
-* **PowerShell** (built into Windows)
-* [**MKVToolNix**](https://mkvtoolnix.download/) installed
+* **Windows** + **PowerShell** (built in).
+* [**MKVToolNix**](https://mkvtoolnix.download/) — provides `mkvmerge` (reads/remuxes everything, incl. MP4) and `mkvpropedit` (edits Matroska in place). **A recent version is strongly recommended** — old versions (e.g. v30) rewrite the `.mkv` header instead of a quick in-place flag change, which is slower and can hurt playback on slow drives. The script warns you if yours is old.
+* [**ffmpeg**](https://ffmpeg.org/) — **optional**: `ffprobe` gives richer info (bitrate, HDR, bit depth), and `ffmpeg` is the fallback editor for MP4 if `mkvmerge` is missing. Install with `winget install Gyan.FFmpeg`.
 
-By default the script expects MKVToolNix at:
+With MKVToolNix alone you can read **and** edit everything (MP4 included). ffmpeg just adds richer info and an alternate MP4 path.
 
-```
-C:\\UserProgramsFiles\\mkvtoolnix\\
-```
+### Tool locations are auto-detected
 
-If yours is elsewhere (e.g., the standard `C:\\Program Files\\MKVToolNix\\`), open `Set-MkvDefaults.ps1` and edit these two lines near the top:
+The script looks for the tools on your `PATH` and in the common install folders automatically. Whatever it finds is remembered in a local `media-defaults.config.json` next to the script, so subsequent runs are instant. If ffmpeg isn't found, the script offers to let you paste its path once (handy for portable builds) and remembers it.
+
+You can also point it explicitly:
 
 ```powershell
-$MkvPropEdit = "C:\\UserProgramsFiles\\mkvtoolnix\\mkvpropedit.exe"
-$MkvMerge    = "C:\\UserProgramsFiles\\mkvtoolnix\\mkvmerge.exe"
+.\Set-MkvDefaults.ps1 -MkvToolNixDir "C:\Program Files\MKVToolNix" -FfmpegDir "C:\ffmpeg\bin"
 ```
 
 ## How to use
 
-1. Download `Set-MkvDefaults.ps1` and `Run-MkvDefaults.bat` and put them in the same folder.
+1. Put `Set-MkvDefaults.ps1` and `Run-MkvDefaults.bat` in the same folder.
 2. Run it one of two ways:
+   * **Drag-and-drop** a season folder — or a single video file — onto `Run-MkvDefaults.bat` (easiest, especially with non-English paths).
+   * **Double-click** `Run-MkvDefaults.bat` and type/paste the path when prompted.
+3. The script prints each file's info, then lists the audio and subtitle tracks. Type the number you want as default. For subtitles, enter `0` for "no default subtitle".
+4. Done. The choice is applied to every file in the group.
 
-   * **Drag-and-drop** a season folder onto `Run-MkvDefaults.bat` — easiest, especially with non-English paths.
-   * **Double-click** `Run-MkvDefaults.bat` and type/paste the folder path when prompted.
-3. The script lists each audio and subtitle track. Type the number you want as default. For subtitles you can also enter `0` to mean "no default subtitle".
-4. Done. The changes are applied to every file in the folder.
+Extra options:
 
-If the folder contains files with different structures, the script shows the differences and asks whether you want to cancel, process only the largest group, or handle each group separately.
+```powershell
+.\Set-MkvDefaults.ps1 -Path "D:\Shows\Some Season" -Recurse   # also scan sub-folders
+```
 
 ## Notes
 
-* Language tags on existing tracks are left alone — the script only changes the default/enabled flags.
-* Tracks without a language tag are flagged in the output (`<-- LANGUAGE NOT TAGGED, check name!`) so you can identify them by their name.
+* Language tags on existing tracks are left alone — only the default/enabled flags change.
+* Tracks without a language tag are flagged (`<-- LANGUAGE NOT TAGGED, check name!`) so you can identify them by name.
+* `media-defaults.config.json` holds machine-specific tool paths and is git-ignored.
 
 ## License
 
 Do whatever you want with it.
-

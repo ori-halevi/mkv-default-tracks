@@ -1,0 +1,7 @@
+# Local, machine-specific tool locations (may contain personal paths) - not for sharing.
+media-defaults.config.json
+
+# Editor / OS clutter
+.vscode/
+Thumbs.db
+desktop.ini
